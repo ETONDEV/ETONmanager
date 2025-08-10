@@ -1,1 +1,593 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  $1
+  <meta name="robots" content="noindex, nofollow, noarchive" />
+  <title>신용카드 매니저 · 로컬 전용</title>
+  <meta name="description" content="브라우저에만 저장되는 개인 신용카드 관리 테이블 앱 (IndexedDB, 오프라인 지원)" />
+  <style>
+    :root {
+      --bg: #0b0d12;          /* 깊은 남청색 배경 */
+      --panel: #121723;       /* 패널 배경 */
+      --muted: #9aa4b2;       /* 보조 텍스트 */
+      --text: #e6e9ef;        /* 기본 텍스트 */
+      --primary: #4f7cff;     /* 포커스 포인트 */
+      --ok: #17c964;          /* 확인색 */
+      --warn: #f5a524;        /* 경고 */
+      --danger: #f31260;      /* 위험 */
+      --border: #232b3a;      /* 경계선 */
+      --shadow: 0 8px 24px rgba(0,0,0,.35);
+      --radius: 16px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", "맑은 고딕", sans-serif;
+      background: radial-gradient(1200px 800px at 10% -10%, #152036 0%, transparent 40%),
+                  radial-gradient(900px 600px at 110% -20%, #1a1336 0%, transparent 45%),
+                  var(--bg);
+      color: var(--text);
+    }
+    header {
+      position: sticky; top: 0; z-index: 20;
+      backdrop-filter: saturate(140%) blur(8px);
+      background: rgba(12,14,20,.6);
+      border-bottom: 1px solid var(--border);
+    }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 20px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .between { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    h1 { font-size: 20px; font-weight: 700; margin: 0; letter-spacing: .3px; }
+    h2 { font-size: 16px; font-weight: 700; margin: 0 0 10px; }
 
+    .panel {
+      background: linear-gradient(180deg, rgba(255,255,255,.02), transparent 40%), var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+    }
+
+    input, select, button, textarea {
+      font: inherit; color: var(--text);
+    }
+    .input, .select, .textarea {
+      width: 100%;
+      background: #0f1320;
+      border: 1px solid #1f2635;
+      border-radius: 12px;
+      padding: 10px 12px; outline: none;
+      transition: border .15s ease, box-shadow .15s ease;
+    }
+    .input:focus, .select:focus, .textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,124,255,.25); }
+
+    .btn {
+      background: #141a2a; border: 1px solid #1f2635; color: var(--text);
+      padding: 10px 14px; border-radius: 12px; cursor: pointer; transition: transform .08s ease, background .2s;
+    }
+    .btn:hover { background: #182036; }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { background: linear-gradient(180deg,#5b86ff,#4f7cff); border-color: #3551c9; }
+    .btn.ok { background: linear-gradient(180deg,#19d47d,#17c964); border-color: #0f8f49; }
+    .btn.warn { background: linear-gradient(180deg,#ffb54b,#f5a524); border-color: #b26d14; color:#1b1206; }
+    .btn.ghost { background: transparent; border-color: #344055; }
+
+    .grid { display: grid; gap: 12px; }
+    .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+    @media (max-width: 900px) { .grid.cols-4 { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 600px) { .grid.cols-4, .grid.cols-3 { grid-template-columns: 1fr; } }
+
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th {
+      position: sticky; top: 74px; z-index: 5;  /* 아래 헤더 높이에 맞춤 */
+      text-align: left; font-weight: 700; font-size: 13px; letter-spacing: .2px; color: #c2c9d6;
+      background: #0e1423; border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      backdrop-filter: blur(4px);
+      cursor: pointer;
+    }
+    tbody td { padding: 12px; border-bottom: 1px solid #1c2231; font-size: 14px; vertical-align: top; }
+    tbody tr:hover { background: rgba(255,255,255,.02); }
+
+    .chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 9px; font-size: 12px; border: 1px solid #263146; }
+    .chip.ok { background: rgba(23,201,100,.15); border-color: rgba(23,201,100,.35); }
+    .chip.warn { background: rgba(245,165,36,.15); border-color: rgba(245,165,36,.35); }
+    .chip.danger { background: rgba(243,18,96,.15); border-color: rgba(243,18,96,.35); }
+    .muted { color: var(--muted); }
+    .mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+
+    .toolbar { gap: 10px; }
+    .toolbar .input { min-width: 220px; }
+
+    .tag { font-size: 11px; color: #b6c0cf; background: #10182a; border: 1px solid #24304a; padding: 4px 8px; border-radius: 999px; }
+
+    .footer { color: var(--muted); font-size: 12px; text-align: center; padding: 28px 0; }
+
+    dialog::backdrop { background: rgba(0,0,0,.5); backdrop-filter: blur(2px); }
+    dialog { border: 1px solid var(--border); background: var(--panel); color: var(--text); border-radius: 14px; padding: 0; box-shadow: var(--shadow); width: min(560px, 92vw); }
+    dialog header { padding: 14px 16px; border-bottom: 1px solid var(--border); background: #0e1423; position: sticky; top: 0; }
+    dialog main { padding: 16px; }
+    dialog footer { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="wrap between" style="padding-top:14px; padding-bottom:14px;">
+      <h1>신용카드 매니저 <span class="tag">로컬 전용</span></h1>
+      <div class="toolbar row">
+        <input id="q" class="input" placeholder="검색: 카드명, 발급사, 메모…" />
+        <select id="filterIssuer" class="select">
+          <option value="">발급사 전체</option>
+        </select>
+        <button class="btn ghost" id="btnExportJSON">JSON 내보내기</button>
+        <button class="btn ghost" id="btnExportCSV">CSV 내보내기</button>
+        <button class="btn" id="btnImport">가져오기(JSON)</button>
+        <input type="file" id="fileImport" accept="application/json" class="sr-only" />
+      </div>
+    </div>
+  </header>
+
+  <div class="wrap" style="margin-top:16px;">
+    <!-- 입력/편집 패널 -->
+    <section class="panel" aria-labelledby="formTitle">
+      <div class="between" style="margin-bottom:10px;">
+        <h2 id="formTitle">카드 추가</h2>
+        <div class="muted" id="formModeHint">새 카드를 등록합니다.</div>
+      </div>
+
+      <form id="cardForm">
+        <input type="hidden" id="id" />
+        <div class="grid cols-4">
+          <div>
+            <label>카드명 *</label>
+            <input id="name" class="input" required placeholder="예: 우리카드 포인트 X" />
+          </div>
+          <div>
+            <label>발급사 *</label>
+            <input id="issuer" class="input" required placeholder="예: 우리카드" />
+          </div>
+          <div>
+            <label>청구마감일(일)</label>
+            <input id="closingDay" type="number" min="1" max="31" class="input" placeholder="예: 2" />
+          </div>
+          <div>
+            <label>결제일(일)</label>
+            <input id="dueDay" type="number" min="1" max="31" class="input" placeholder="예: 17" />
+          </div>
+          <div>
+            <label>연회비</label>
+            <input id="annualFee" type="number" min="0" step="1" class="input" placeholder="예: 30000" />
+          </div>
+          <div>
+            <label>통화</label>
+            <select id="currency" class="select">
+              <option value="KRW">KRW</option>
+              <option value="USD">USD</option>
+              <option value="JPY">JPY</option>
+              <option value="EUR">EUR</option>
+            </select>
+          </div>
+          <div>
+            <label>신용한도</label>
+            <input id="limit" type="number" min="0" step="1" class="input" placeholder="예: 5000000" />
+          </div>
+          <div>
+            <label>현재잔액</label>
+            <input id="balance" type="number" min="0" step="1" class="input" placeholder="예: 1200000" />
+          </div>
+          <div>
+            <label>카드번호 끝 4자리</label>
+            <input id="last4" class="input" maxlength="4" pattern="\d{0,4}" placeholder="예: 1234" />
+          </div>
+          <div>
+            <label>개설일</label>
+            <input id="openedAt" type="date" class="input" />
+          </div>
+          <div class="cols-2" style="grid-column: span 2;">
+            <label>메모</label>
+            <textarea id="note" class="textarea" rows="2" placeholder="주의사항, 혜택, 분실/재발급 이력 등"></textarea>
+          </div>
+        </div>
+        <div class="between" style="margin-top:14px;">
+          <div class="muted" style="font-size:12px;">* 브라우저(이 기기)에만 저장됩니다. 전체 카드번호/민감정보는 보관하지 마세요.</div>
+          <div class="row">
+            <button type="reset" class="btn">초기화</button>
+            <button type="submit" class="btn ok" id="btnSave">저장</button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- 목록 테이블 -->
+    <section class="panel" style="margin-top:16px;">
+      <div class="between" style="margin-bottom:8px;">
+        <h2>보유 카드 목록</h2>
+        <div class="muted" id="summary">0장</div>
+      </div>
+      <div style="overflow:auto; border-radius: 12px;">
+        <table id="cardsTable" aria-describedby="summary">
+          <thead>
+            <tr>
+              <th data-key="name">카드명</th>
+              <th data-key="issuer">발급사</th>
+              <th data-key="dueDay">결제일</th>
+              <th>다음 결제(D-)</th>
+              <th data-key="annualFee">연회비</th>
+              <th data-key="limit">한도</th>
+              <th data-key="balance">잔액</th>
+              <th>끝 4자리</th>
+              <th data-key="openedAt">개설일</th>
+              <th>메모</th>
+              <th>작업</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <dialog id="dlgConfirm">
+    <header>
+      <strong>삭제 확인</strong>
+    </header>
+    <main>
+      이 카드를 삭제할까요? 이 작업은 되돌릴 수 없습니다.
+    </main>
+    <footer>
+      <button class="btn" id="dlgCancel">취소</button>
+      <button class="btn warn" id="dlgOk">삭제</button>
+    </footer>
+  </dialog>
+
+  <div class="footer wrap">
+    Made for you · 데이터는 <strong>이 브라우저에만 저장</strong>됩니다 · JSON/CSV로 백업 권장
+  </div>
+
+  <script>
+    // ===== 유틸 =====
+    const $ = (sel, el=document) => el.querySelector(sel);
+    const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
+    const fmtNum = n => (n === null || n === undefined || n === '') ? '' : Number(n).toLocaleString('ko-KR');
+    const parseNum = v => (v === '' || v === null || v === undefined) ? null : Number(v);
+
+    // YYYY-MM-DD 문자열 반환
+    function toDateStr(d) {
+      if (!d) return '';
+      if (typeof d === 'string') return d;
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
+    }
+
+    // day(1..31) 기준으로 다음 결제일 Date 반환 (존재하지 않는 일자는 말일로 보정)
+    function nextDayOfMonth(day) {
+      if (!day) return null;
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const cand1 = clampDay(new Date(y, m, 1), day);
+      if (cand1 >= stripTime(now)) return cand1;
+      return clampDay(new Date(y, m+1, 1), day);
+    }
+    function stripTime(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+    function clampDay(firstOfMonth, day) {
+      const last = new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth()+1, 0).getDate();
+      const real = Math.min(day, last);
+      return new Date(firstOfMonth.getFullYear(), firstOfMonth.getMonth(), real);
+    }
+    function diffDays(a, b) { // b - a (일)
+      const ms = stripTime(b) - stripTime(a);
+      return Math.round(ms / 86400000);
+    }
+
+    // ===== IndexedDB 래퍼 =====
+    const DB_NAME = 'ccm-local';
+    const DB_VER = 1;
+    let db;
+
+    function openDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, DB_VER);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('cards')) {
+            const os = db.createObjectStore('cards', { keyPath: 'id' });
+            os.createIndex('issuer', 'issuer', { unique: false });
+            os.createIndex('name', 'name', { unique: false });
+          }
+        };
+        req.onsuccess = (e) => { db = e.target.result; resolve(db); };
+        req.onerror = (e) => reject(e.target.error);
+      });
+    }
+
+    function tx(storeName, mode='readonly') {
+      const t = db.transaction(storeName, mode);
+      return t.objectStore(storeName);
+    }
+
+    async function getAllCards() {
+      return new Promise((resolve, reject) => {
+        const req = tx('cards').getAll();
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    function putCard(card) {
+      return new Promise((resolve, reject) => {
+        const req = tx('cards', 'readwrite').put(card);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
+    function deleteCard(id) {
+      return new Promise((resolve, reject) => {
+        const req = tx('cards', 'readwrite').delete(id);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error);
+      });
+    }
+
+    // ===== 상태 =====
+    let cards = [];      // 메모리 캐시
+    let sortKey = 'name';
+    let sortDir = 'asc'; // 'asc' | 'desc'
+    let pendingDeleteId = null;
+
+    function applySort(a, b) {
+      const k = sortKey;
+      const va = a[k] ?? '';
+      const vb = b[k] ?? '';
+      if (typeof va === 'number' && typeof vb === 'number') {
+        return sortDir === 'asc' ? va - vb : vb - va;
+      }
+      const sa = String(va).toLowerCase();
+      const sb = String(vb).toLowerCase();
+      if (sa < sb) return sortDir === 'asc' ? -1 : 1;
+      if (sa > sb) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    }
+
+    function filtered() {
+      const q = $('#q').value.trim().toLowerCase();
+      const fi = $('#filterIssuer').value;
+      return cards.filter(c => {
+        const hitQ = !q || [c.name, c.issuer, c.note].some(v => (v||'').toLowerCase().includes(q));
+        const hitI = !fi || c.issuer === fi;
+        return hitQ && hitI;
+      }).sort(applySort);
+    }
+
+    function renderIssuerFilter() {
+      const sel = $('#filterIssuer');
+      const set = new Set(cards.map(c => c.issuer).filter(Boolean));
+      const cur = sel.value;
+      sel.innerHTML = '<option value="">발급사 전체</option>' + Array.from(set).sort().map(v => `<option>${escapeHtml(v)}</option>`).join('');
+      // 기존 선택 유지
+      if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+    }
+
+    function renderTable() {
+      renderIssuerFilter();
+      const rows = filtered();
+      const tb = $('#tbody');
+      tb.innerHTML = rows.map(r => rowHtml(r)).join('');
+      $('#summary').textContent = `${rows.length}장`;
+    }
+
+    function rowHtml(r) {
+      const nextDue = r.dueDay ? nextDayOfMonth(r.dueDay) : null;
+      const dday = nextDue ? diffDays(new Date(), nextDue) : null;
+      let chipClass = 'chip';
+      if (dday !== null) {
+        if (dday < 0) chipClass += ' danger';
+        else if (dday <= 7) chipClass += ' warn';
+        else chipClass += ' ok';
+      }
+      return `
+        <tr data-id="${r.id}">
+          <td><strong>${escapeHtml(r.name||'')}</strong></td>
+          <td>${escapeHtml(r.issuer||'')}</td>
+          <td>${r.dueDay? r.dueDay+'일':''}</td>
+          <td>${nextDue ? `<span class="${chipClass}">D${dday>=0?'-'+dday:dday}</span> <span class="muted mono">${toDateStr(nextDue)}</span>` : ''}</td>
+          <td class="mono">${fmtNum(r.annualFee)}</td>
+          <td class="mono">${fmtNum(r.limit)}</td>
+          <td class="mono">${fmtNum(r.balance)}</td>
+          <td class="mono">${escapeHtml(r.last4||'')}</td>
+          <td class="mono">${escapeHtml(r.openedAt||'')}</td>
+          <td>${escapeHtml(r.note||'')}</td>
+          <td>
+            <button class="btn" data-action="edit">편집</button>
+            <button class="btn warn" data-action="del">삭제</button>
+          </td>
+        </tr>
+      `;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c]));
+    }
+
+    function clearForm() {
+      $('#cardForm').reset();
+      $('#id').value = '';
+      $('#formTitle').textContent = '카드 추가';
+      $('#formModeHint').textContent = '새 카드를 등록합니다.';
+      $('#btnSave').textContent = '저장';
+    }
+
+    function fillForm(c) {
+      $('#id').value = c.id;
+      $('#name').value = c.name || '';
+      $('#issuer').value = c.issuer || '';
+      $('#closingDay').value = c.closingDay ?? '';
+      $('#dueDay').value = c.dueDay ?? '';
+      $('#annualFee').value = c.annualFee ?? '';
+      $('#currency').value = c.currency || 'KRW';
+      $('#limit').value = c.limit ?? '';
+      $('#balance').value = c.balance ?? '';
+      $('#last4').value = c.last4 || '';
+      $('#openedAt').value = c.openedAt || '';
+      $('#note').value = c.note || '';
+      $('#formTitle').textContent = '카드 편집';
+      $('#formModeHint').textContent = '선택한 카드를 수정합니다.';
+      $('#btnSave').textContent = '수정 저장';
+      window.scrollTo({top: 0, behavior: 'smooth'});
+    }
+
+    function readForm() {
+      return {
+        id: $('#id').value || crypto.randomUUID(),
+        name: $('#name').value.trim(),
+        issuer: $('#issuer').value.trim(),
+        closingDay: parseNum($('#closingDay').value),
+        dueDay: parseNum($('#dueDay').value),
+        annualFee: parseNum($('#annualFee').value),
+        currency: $('#currency').value,
+        limit: parseNum($('#limit').value),
+        balance: parseNum($('#balance').value),
+        last4: $('#last4').value.replace(/\D/g,'').slice(-4),
+        openedAt: $('#openedAt').value || '',
+        note: $('#note').value.trim(),
+        updatedAt: new Date().toISOString(),
+        createdAt: $('#id').value ? undefined : new Date().toISOString(),
+      };
+    }
+
+    function validate(card) {
+      if (!card.name) return '카드명을 입력하세요';
+      if (!card.issuer) return '발급사를 입력하세요';
+      if (card.closingDay && (card.closingDay < 1 || card.closingDay > 31)) return '청구마감일은 1~31';
+      if (card.dueDay && (card.dueDay < 1 || card.dueDay > 31)) return '결제일은 1~31';
+      if (card.last4 && card.last4.length !== 4) return '끝 4자리는 숫자 4자리';
+      return null;
+    }
+
+    // ===== 이벤트 바인딩 =====
+    document.addEventListener('DOMContentLoaded', async () => {
+      await openDB();
+      cards = await getAllCards();
+      renderTable();
+
+      // 정렬 헤더
+      $$('#cardsTable thead th').forEach(th => {
+        const key = th.dataset.key;
+        if (!key) return;
+        th.addEventListener('click', () => {
+          if (sortKey === key) sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
+          else { sortKey = key; sortDir = 'asc'; }
+          renderTable();
+        });
+      });
+
+      // 검색, 발급사 필터
+      $('#q').addEventListener('input', renderTable);
+      $('#filterIssuer').addEventListener('change', renderTable);
+
+      // 테이블 액션 (이벤트 위임)
+      $('#tbody').addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const tr = e.target.closest('tr');
+        const id = tr?.dataset.id;
+        const action = btn.dataset.action;
+        const card = cards.find(c => c.id === id);
+        if (!id || !card) return;
+        if (action === 'edit') fillForm(card);
+        if (action === 'del') confirmDelete(id);
+      });
+
+      // 폼 제출
+      $('#cardForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = readForm();
+        const err = validate(data);
+        if (err) { alert(err); return; }
+        await putCard(data);
+        const exists = cards.findIndex(c => c.id === data.id);
+        if (exists >= 0) cards[exists] = {...cards[exists], ...data}; else cards.push(data);
+        clearForm();
+        renderTable();
+      });
+
+      // 폼 리셋 시 모드 초기화
+      $('#cardForm').addEventListener('reset', () => {
+        setTimeout(clearForm, 0);
+      });
+
+      // 내보내기(JSON)
+      $('#btnExportJSON').addEventListener('click', () => {
+        const data = JSON.stringify(cards, null, 2);
+        downloadBlob(data, `cards-backup-${toDateStr(new Date())}.json`, 'application/json');
+      });
+
+      // 내보내기(CSV)
+      $('#btnExportCSV').addEventListener('click', () => {
+        const csv = toCSV(cards);
+        downloadBlob(csv, `cards-${toDateStr(new Date())}.csv`, 'text/csv;charset=utf-8');
+      });
+
+      // 가져오기(JSON)
+      $('#btnImport').addEventListener('click', () => $('#fileImport').click());
+      $('#fileImport').addEventListener('change', async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        let arr;
+        try { arr = JSON.parse(text); }
+        catch { alert('JSON 형식이 아닙니다.'); return; }
+        if (!Array.isArray(arr)) { alert('배열(JSON 리스트) 형식이어야 합니다.'); return; }
+        // 덮어쓰기 여부 확인
+        if (!confirm(`총 ${arr.length}개 항목을 덮어쓸까요? (현재 데이터는 삭제되지 않지만 동일 ID는 교체됩니다)`)) return;
+        // put all
+        for (const c of arr) { try { await putCard(c); } catch {} }
+        cards = await getAllCards();
+        renderTable();
+        e.target.value = '';
+      });
+
+      // 삭제 확인 다이얼로그
+      $('#dlgCancel').addEventListener('click', () => { pendingDeleteId = null; $('#dlgConfirm').close(); });
+      $('#dlgOk').addEventListener('click', async () => {
+        if (!pendingDeleteId) return;
+        await deleteCard(pendingDeleteId);
+        cards = cards.filter(c => c.id !== pendingDeleteId);
+        pendingDeleteId = null; renderTable(); $('#dlgConfirm').close();
+      });
+    });
+
+    function confirmDelete(id) {
+      pendingDeleteId = id;
+      $('#dlgConfirm').showModal();
+    }
+
+    function downloadBlob(text, filename, mime) {
+      const blob = new Blob([text], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function toCSV(arr) {
+      const cols = ['id','name','issuer','closingDay','dueDay','annualFee','currency','limit','balance','last4','openedAt','note','createdAt','updatedAt'];
+      const head = cols.join(',');
+      const lines = arr.map(o => cols.map(k => csvCell(o[k])).join(','));
+      return [head, ...lines].join('\n');
+    }
+    function csvCell(v) {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      if (/[,"\n]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+      return s;
+    }
+  </script>
+</body>
+</html>
